@@ -95,7 +95,7 @@ for SPLIT in SPLITS:
       
       if DEBUG:
         image = cv2.imread(
-          DATA_PATH + 'images/trainval/' + image_info['file_name'])
+          DATA_PATH + 'training/image_2/' + image_info['file_name'])
 
       for ann_ind, txt in enumerate(anns):
         tmp = txt[:-1].split(' ')
@@ -137,6 +137,7 @@ for SPLIT in SPLITS:
                             dtype=np.float32)
           pt_3d = unproject_2d_to_3d(pt_2d, depth, calib)
           pt_3d[1] += dim[0] / 2
+          print('category:', cats[cat_id-1])
           print('pt_3d', pt_3d)
           print('location', location)
       if DEBUG:

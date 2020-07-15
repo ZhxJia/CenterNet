@@ -154,12 +154,12 @@ class opts(object):
                                   'keypoint heatmaps.')
     # ctdet
     self.parser.add_argument('--reg_loss', default='l1',
-                             help='regression loss: sl1 | l1 | l2')
+                             help='regression loss: sl1 | l1 | l2 | giou')
     self.parser.add_argument('--hm_weight', type=float, default=1,
                              help='loss weight for keypoint heatmaps.')
     self.parser.add_argument('--off_weight', type=float, default=1,
                              help='loss weight for keypoint local offsets.')
-    self.parser.add_argument('--wh_weight', type=float, default=0.1,
+    self.parser.add_argument('--wh_weight', type=float, default=2.0,
                              help='loss weight for bounding box size.')
     # multi_pose
     self.parser.add_argument('--hp_weight', type=float, default=1,
@@ -296,38 +296,38 @@ class opts(object):
     opt.input_res = max(opt.input_h, opt.input_w)
     opt.output_res = max(opt.output_h, opt.output_w)
     
-    if opt.task == 'exdet':
-      # assert opt.dataset in ['coco']
-      num_hm = 1 if opt.agnostic_ex else opt.num_classes
-      opt.heads = {'hm_t': num_hm, 'hm_l': num_hm, 
-                   'hm_b': num_hm, 'hm_r': num_hm,
-                   'hm_c': opt.num_classes}
-      if opt.reg_offset:
-        opt.heads.update({'reg_t': 2, 'reg_l': 2, 'reg_b': 2, 'reg_r': 2})
-    elif opt.task == 'ddd':
+    # if opt.task == 'exdet':
+    #   # assert opt.dataset in ['coco']
+    #   num_hm = 1 if opt.agnostic_ex else opt.num_classes
+    #   opt.heads = {'hm_t': num_hm, 'hm_l': num_hm,
+    #                'hm_b': num_hm, 'hm_r': num_hm,
+    #                'hm_c': opt.num_classes}
+    #   if opt.reg_offset:
+    #     opt.heads.update({'reg_t': 2, 'reg_l': 2, 'reg_b': 2, 'reg_r': 2})
+    if opt.task == 'ddd':
       # assert opt.dataset in ['gta', 'kitti', 'viper']
       opt.heads = {'hm': opt.num_classes, 'dep': 1, 'rot': 8, 'dim': 3}
       if opt.reg_bbox:
         opt.heads.update(
-          {'wh': 2})
+          {'wh': 4})
       if opt.reg_offset:
         opt.heads.update({'reg': 2})
     elif opt.task == 'ctdet':
       # assert opt.dataset in ['pascal', 'coco']
       opt.heads = {'hm': opt.num_classes,
-                   'wh': 2 if not opt.cat_spec_wh else 2 * opt.num_classes}
+                   'wh': 4 if not opt.cat_spec_wh else 4 * opt.num_classes}
       if opt.reg_offset:
         opt.heads.update({'reg': 2})
-    elif opt.task == 'multi_pose':
-      # assert opt.dataset in ['coco_hp']
-      opt.flip_idx = dataset.flip_idx
-      opt.heads = {'hm': opt.num_classes, 'wh': 2, 'hps': 34}
-      if opt.reg_offset:
-        opt.heads.update({'reg': 2})
-      if opt.hm_hp:
-        opt.heads.update({'hm_hp': 17})
-      if opt.reg_hp_offset:
-        opt.heads.update({'hp_offset': 2})
+    # elif opt.task == 'multi_pose':
+    #   # assert opt.dataset in ['coco_hp']
+    #   opt.flip_idx = dataset.flip_idx
+    #   opt.heads = {'hm': opt.num_classes, 'wh': 2, 'hps': 34}
+    #   if opt.reg_offset:
+    #     opt.heads.update({'reg': 2})
+    #   if opt.hm_hp:
+    #     opt.heads.update({'hm_hp': 17})
+    #   if opt.reg_hp_offset:
+    #     opt.heads.update({'hp_offset': 2})
     else:
       assert 0, 'task not defined!'
     print('heads', opt.heads)

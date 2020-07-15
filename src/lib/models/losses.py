@@ -83,16 +83,45 @@ def _not_faster_neg_loss(pred, gt):
     loss -=  all_loss
     return loss
 
-def _slow_reg_loss(regr, gt_regr, mask):
-    num  = mask.float().sum()
-    mask = mask.unsqueeze(2).expand_as(gt_regr)
+def _generalized_iou(pred, gt):
+  '''
+  Input:
+      pred: (x1,y1,x2,y2)
+      gt: (x1,y1,x2,y2)
+  Output:
+      GIOU = IOU - C\(AUB) / C
+  '''
+  assert pred.shape == gt.shape
 
-    regr    = regr[mask]
-    gt_regr = gt_regr[mask]
+  lt = torch.max(pred[:,:2], gt[:,:2])
+  rb = torch.min(pred[:,2:], gt[:,2:])
+  wh = (rb - lt).clamp(min=0) # overlap
+  enclose_x1y1 = torch.min(pred[:, :2], gt[:, :2])
+  enclose_x2y2 = torch.max(pred[:, 2:], gt[:, 2:])
+  enclose_wh = (enclose_x2y2 - enclose_x1y1).clamp(min=0) # C
+
+  overlap = wh[:, 0] * wh[:, 1]
+  ap = (pred[:,2] - pred[:,0]) * (pred[:,3] - pred[:,1])
+  ag = (gt[:,2] - gt[:,0]) * (gt[:,3] - gt[:,1])
+  ious = overlap / (ap + ag - overlap + 1e-6)
+
+  enclose_area = enclose_wh[:,0] * enclose_wh[:,1] # C
+  u = ap + ag - overlap
+  gious = ious - (enclose_area-u) / (enclose_area + 1e-6)
+  giou_metric = 1.0 - gious
+  return giou_metric
+
+
+def _slow_reg_loss(regr, gt_regr, mask):
+  num  = mask.float().sum()
+  mask = mask.unsqueeze(2).expand_as(gt_regr)
+
+  regr    = regr[mask]
+  gt_regr = gt_regr[mask]
     
-    regr_loss = nn.functional.smooth_l1_loss(regr, gt_regr, size_average=False)
-    regr_loss = regr_loss / (num + 1e-4)
-    return regr_loss
+  regr_loss = nn.functional.smooth_l1_loss(regr, gt_regr, size_average=False)
+  regr_loss = regr_loss / (num + 1e-4)
+  return regr_loss
 
 def _reg_loss(regr, gt_regr, mask):
   ''' L1 regression loss
@@ -146,6 +175,53 @@ class RegL1Loss(nn.Module):
     # loss = F.l1_loss(pred * mask, target * mask, reduction='elementwise_mean')
     loss = F.l1_loss(pred * mask, target * mask, size_average=False)
     loss = loss / (mask.sum() + 1e-4)
+    return loss
+
+class RegGiouLoss(nn.Module):
+  '''
+  https://arxiv.org/pdf/1902.09630.pdf
+  Input:
+    pred_hm -> [batch, 80, h, w] tensor
+    pred_wh -> [batch, 4, h, w] tensor  (wl, ht, wr, hb) within heatmap
+    target_hm -> [batch, 80, h, w] tesnor
+    target_box -> [batch, 4, h, w] tesnor (x1, y1, x2, y2) within heatmap
+    weight -> [batch, 1, h, w] tensor
+  Output:
+    giou loss -> [batch,1]  tensor
+  Note:
+    In paper: TTFNet, the gious loss calculate on raw image scale
+  Value range:
+    approximate: <2.
+  '''
+  def __init__(self):
+    super(RegGiouLoss,self).__init__()
+    self.base_loc = None
+
+  def forward(self, pred_hm, pred_wh, target_hm,target_boxes ,weight, avg_factor=None):
+    H, W = pred_hm.shape[2:]
+
+    mask = weight.view(-1, H, W)
+    avg_factor = mask.sum() + 1e-4
+
+    if self.base_loc is None or H != self.base_loc.shape[1] or W != self.base_loc.shape[2]:
+      loc_x = torch.arange(0, W, dtype=torch.float32, device=pred_hm.device)
+      loc_y = torch.arange(0, H, dtype=torch.float32, device=pred_hm.device)
+      loc_y, loc_x = torch.meshgrid(loc_y, loc_x)
+      self.base_loc = torch.stack((loc_y, loc_x), dim=0) # (2,H,W)
+
+    pred_boxes = torch.cat((self.base_loc - pred_wh[:, [0, 1]],
+                            self.base_loc + pred_wh[:, [2, 3]]), dim=1).permute(0, 2, 3, 1).contiguous() # （batch,h,w,4）
+    target_boxes = target_boxes.permute(0, 2, 3, 1).contiguous()  # [batch, h, w, 4]
+    #TODO debug:
+    pos_mask = mask > 0 #[batch, 128, 128]
+    mask = mask[pos_mask].float()
+    # if avg_factor is None:
+    #   avg_factor = torch.sum(pos_mask).float().item() + 1e-6
+
+    pd_boxes = pred_boxes[pos_mask].view(-1,4) #[num_boxes, 4]
+    gt_boxes = target_boxes[pos_mask].view(-1,4) #[num_boxes, 4]
+    giou = _generalized_iou(pd_boxes,gt_boxes)
+    loss = torch.sum(giou * mask)[None] / avg_factor
     return loss
 
 class NormRegL1Loss(nn.Module):
@@ -203,7 +279,7 @@ def compute_bin_loss(output, target, mask):
     return F.cross_entropy(output, target, reduction='elementwise_mean')
 
 def compute_rot_loss(output, target_bin, target_res, mask):
-    # output: (B, 128, 8) [bin1_cls[0], bin1_cls[1], bin1_sin, bin1_cos, 
+    # output: (B, 128, 8) [bin1_cls[0], bin1_cls[1], bin1_sin, bin1_cos,
     #                 bin2_cls[0], bin2_cls[1], bin2_sin, bin2_cos]
     # target_bin: (B, 128, 2) [bin1_cls, bin2_cls]
     # target_res: (B, 128, 2) [bin1_res, bin2_res]
@@ -235,3 +311,18 @@ def compute_rot_loss(output, target_bin, target_res, mask):
           valid_output2[:, 7], torch.cos(valid_target_res2[:, 1]))
         loss_res += loss_sin2 + loss_cos2
     return loss_bin1 + loss_bin2 + loss_res
+
+
+if __name__ == "__main__":
+    pred = torch.tensor([[125, 456, 321, 647],
+                          [25, 321, 216, 645],
+                          [111, 195, 341, 679],
+                          [30, 134, 105, 371]],dtype=torch.float32)
+    gt = torch.tensor([[132, 407, 301, 667],
+                           [29, 322, 234, 664],
+                           [109, 201, 315, 680],
+                           [41, 140, 115, 384]],dtype=torch.float32)
+
+    loss = RegGiouLoss
+    # giou_loss = loss(pred,gt,)
+    print(giou_loss)

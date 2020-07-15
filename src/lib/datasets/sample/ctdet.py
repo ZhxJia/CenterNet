@@ -10,8 +10,8 @@ import cv2
 import os
 from utils.image import flip, color_aug
 from utils.image import get_affine_transform, affine_transform
-from utils.image import gaussian_radius, draw_umich_gaussian, draw_msra_gaussian
-from utils.image import draw_dense_reg
+from utils.image import gaussian_radius, draw_umich_gaussian, draw_msra_gaussian, draw_truncate_gaussian, radius_generate
+from utils.image import draw_dense_reg, box_areas
 import math
 
 class CTDetDataset(data.Dataset):
@@ -32,7 +32,10 @@ class CTDetDataset(data.Dataset):
     img_path = os.path.join(self.img_dir, file_name)
     ann_ids = self.coco.getAnnIds(imgIds=[img_id])
     anns = self.coco.loadAnns(ids=ann_ids)
+    # anns.sort(key=(lambda x:x['area']), reverse = True) # 根据面积降序排列
+    anns.sort(key=(lambda x:x['bbox'][2] * x['bbox'][3]), reverse = True)
     num_objs = min(len(anns), self.max_objs)
+    self.alpha = 0.54
 
     img = cv2.imread(img_path)
 
@@ -84,19 +87,22 @@ class CTDetDataset(data.Dataset):
     trans_output = get_affine_transform(c, s, 0, [output_w, output_h])
 
     hm = np.zeros((num_classes, output_h, output_w), dtype=np.float32)
-    wh = np.zeros((self.max_objs, 2), dtype=np.float32)
+    hm_spec = np.zeros((output_h,output_w), dtype=np.float32) #TODO debug
+    wh = np.ones((4, output_h, output_w), dtype=np.float32) * -1
+    reg_weight = np.zeros((1, output_h, output_w),dtype=np.float32)
     dense_wh = np.zeros((2, output_h, output_w), dtype=np.float32)
-    reg = np.zeros((self.max_objs, 2), dtype=np.float32)
+    reg = np.zeros((self.max_objs, 2), dtype=np.float32) # offset
     ind = np.zeros((self.max_objs), dtype=np.int64)
     reg_mask = np.zeros((self.max_objs), dtype=np.uint8)
-    cat_spec_wh = np.zeros((self.max_objs, num_classes * 2), dtype=np.float32)
-    cat_spec_mask = np.zeros((self.max_objs, num_classes * 2), dtype=np.uint8)
-    
-    draw_gaussian = draw_msra_gaussian if self.opt.mse_loss else \
-                    draw_umich_gaussian
+    # cat_spec_wh = np.zeros((self.max_objs, num_classes * 2), dtype=np.float32)
+    # cat_spec_mask = np.zeros((self.max_objs, num_classes * 2), dtype=np.uint8)
+
+    draw_gaussian = draw_truncate_gaussian #draw_umich_gaussian
 
     gt_det = []
+    # large boxes have lower priority than small boxes
     for k in range(num_objs):
+      hm_spec = np.zeros_like(hm_spec)
       ann = anns[k]
       bbox = self._coco_box_to_bbox(ann['bbox'])
       cls_id = int(self.cat_ids[ann['category_id']])
@@ -108,33 +114,37 @@ class CTDetDataset(data.Dataset):
       bbox[[1, 3]] = np.clip(bbox[[1, 3]], 0, output_h - 1)
       h, w = bbox[3] - bbox[1], bbox[2] - bbox[0]
       if h > 0 and w > 0:
-        radius = gaussian_radius((math.ceil(h), math.ceil(w)))
-        radius = max(0, int(radius))
-        radius = self.opt.hm_gauss if self.opt.mse_loss else radius
+        radius_h, radius_w = radius_generate((math.ceil(h), math.ceil(w)),alpha=self.alpha)
+        radius_h, radius_w = max(0, int(radius_h)), max(0, int(radius_w))
+        # radius = self.opt.hm_gauss if self.opt.mse_loss else radius
         ct = np.array(
           [(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2], dtype=np.float32)
         ct_int = ct.astype(np.int32)
-        draw_gaussian(hm[cls_id], ct_int, radius)
-        wh[k] = 1. * w, 1. * h
-        ind[k] = ct_int[1] * output_w + ct_int[0]
+        draw_gaussian(hm[cls_id],hm_spec, ct_int, radius_h, radius_w)
+        #box_target_inds = np.argwhere(hm[cls_id]>0)
+        box_target_inds = hm_spec > 0 # TODO Debug
+        wh[:, box_target_inds] = bbox[:,None] # bbox: x1,y1 ,x2,y2
+        # wh[k] = 1. * w, 1. * h
+        ind[k] = ct_int[1] * output_w + ct_int[0] #object center point id
         reg[k] = ct - ct_int
         reg_mask[k] = 1
-        cat_spec_wh[k, cls_id * 2: cls_id * 2 + 2] = wh[k]
-        cat_spec_mask[k, cls_id * 2: cls_id * 2 + 2] = 1
-        if self.opt.dense_wh:
-          draw_dense_reg(dense_wh, hm.max(axis=0), ct_int, wh[k], radius)
+        local_heatmap = hm_spec[box_target_inds]
+        ct_div = local_heatmap.sum()
+        local_heatmap *= np.log((h * w))
+        reg_weight[0,box_target_inds] = local_heatmap / ct_div
+
         gt_det.append([ct[0] - w / 2, ct[1] - h / 2, 
                        ct[0] + w / 2, ct[1] + h / 2, 1, cls_id])
     
-    ret = {'input': inp, 'hm': hm, 'reg_mask': reg_mask, 'ind': ind, 'wh': wh}
-    if self.opt.dense_wh:
-      hm_a = hm.max(axis=0, keepdims=True)
-      dense_wh_mask = np.concatenate([hm_a, hm_a], axis=0)
-      ret.update({'dense_wh': dense_wh, 'dense_wh_mask': dense_wh_mask})
-      del ret['wh']
-    elif self.opt.cat_spec_wh:
-      ret.update({'cat_spec_wh': cat_spec_wh, 'cat_spec_mask': cat_spec_mask})
-      del ret['wh']
+    ret = {'input': inp, 'hm': hm, 'reg_mask': reg_mask, 'ind': ind, 'wh': wh ,'reg_weight': reg_weight}
+    # if self.opt.dense_wh:
+    #   hm_a = hm.max(axis=0, keepdims=True)
+    #   dense_wh_mask = np.concatenate([hm_a, hm_a], axis=0)
+    #   ret.update({'dense_wh': dense_wh, 'dense_wh_mask': dense_wh_mask})
+    #   del ret['wh']
+    # elif self.opt.cat_spec_wh:
+    #   ret.update({'cat_spec_wh': cat_spec_wh, 'cat_spec_mask': cat_spec_mask})
+    #   del ret['wh']
     if self.opt.reg_offset:
       ret.update({'reg': reg})
     if self.opt.debug > 0 or not self.split == 'train':

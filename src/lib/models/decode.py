@@ -7,6 +7,9 @@ import torch.nn as nn
 from .utils import _gather_feat, _transpose_and_gather_feat
 
 def _nms(heat, kernel=3):
+    '''
+    reference cornernet: 3X3 max pooling for nms
+    '''
     pad = (kernel - 1) // 2
 
     hmax = nn.functional.max_pool2d(

@@ -249,6 +249,7 @@ class exkp(nn.Module):
 
 
         self.relu = nn.ReLU(inplace=True)
+        self.relu_wh = nn.ReLU(inplace=True)
 
     def forward(self, image):
         # print('image shape', image.shape)
@@ -264,6 +265,8 @@ class exkp(nn.Module):
             for head in self.heads:
                 layer = self.__getattr__(head)[ind]
                 y = layer(cnv)
+                if head is 'wh':
+                    y = self.relu_wh(y) * 16.0 # enlarge the output wh for easier optimization
                 out[head] = y
             
             outs.append(out)
@@ -298,3 +301,17 @@ class HourglassNet(exkp):
 def get_large_hourglass_net(num_layers, heads, head_conv):
   model = HourglassNet(heads, 2)
   return model
+
+
+if __name__ == "__main__":
+    # test model
+    from opts import opts
+    import torch
+    from datasets.dataset_factory import get_dataset
+    opt = opts().parse()
+    dataset = get_dataset('coco', 'ctdet')
+    opt = opts().update_dataset_info_and_set_heads(opt, dataset)
+    model = get_large_hourglass_net(0, heads=opt.heads, head_conv=0)
+    input = torch.FloatTensor(1, 3, 512, 512) # ouput:hm128*128*80 wh:128*128*2 reg:128*128*2
+    output = model(input)
+    print(model)

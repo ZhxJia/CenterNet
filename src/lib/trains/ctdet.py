@@ -6,7 +6,7 @@ import torch
 import numpy as np
 
 from models.losses import FocalLoss
-from models.losses import RegL1Loss, RegLoss, NormRegL1Loss, RegWeightedL1Loss
+from models.losses import RegL1Loss, RegLoss, NormRegL1Loss, RegWeightedL1Loss, RegGiouLoss
 from models.decode import ctdet_decode
 from models.utils import _sigmoid
 from utils.debugger import Debugger
@@ -20,9 +20,7 @@ class CtdetLoss(torch.nn.Module):
     self.crit = torch.nn.MSELoss() if opt.mse_loss else FocalLoss()
     self.crit_reg = RegL1Loss() if opt.reg_loss == 'l1' else \
               RegLoss() if opt.reg_loss == 'sl1' else None
-    self.crit_wh = torch.nn.L1Loss(reduction='sum') if opt.dense_wh else \
-              NormRegL1Loss() if opt.norm_wh else \
-              RegWeightedL1Loss() if opt.cat_spec_wh else self.crit_reg
+    self.crit_wh = RegGiouLoss()
     self.opt = opt
 
   def forward(self, outputs, batch):
@@ -48,6 +46,7 @@ class CtdetLoss(torch.nn.Module):
 
       hm_loss += self.crit(output['hm'], batch['hm']) / opt.num_stacks
       if opt.wh_weight > 0:
+        '''
         if opt.dense_wh:
           mask_weight = batch['dense_wh_mask'].sum() + 1e-4
           wh_loss += (
@@ -62,7 +61,9 @@ class CtdetLoss(torch.nn.Module):
           wh_loss += self.crit_reg(
             output['wh'], batch['reg_mask'],
             batch['ind'], batch['wh']) / opt.num_stacks
-      
+        '''
+        wh_loss += self.crit_wh(output['hm'], output['wh'],
+                                batch['hm'], batch['wh'], batch['reg_weight']) / opt.num_stacks
       if opt.reg_offset and opt.off_weight > 0:
         off_loss += self.crit_reg(output['reg'], batch['reg_mask'],
                              batch['ind'], batch['reg']) / opt.num_stacks

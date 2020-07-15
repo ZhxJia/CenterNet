@@ -14,7 +14,7 @@ import cv2
 import random
 
 def flip(img):
-  return img[:, :, ::-1].copy()  
+  return img[:, :, ::-1].copy()
 
 def transform_preds(coords, center, scale, output_size):
     target_coords = np.zeros(coords.shape)
@@ -91,6 +91,26 @@ def crop(img, center, scale, output_size, rot=0):
 
     return dst_img
 
+def box_areas(bboxes,keep_axis=False):
+    x_min, y_min, x_max, y_max = bboxes[:,0], bboxes[:,1], bboxes[:,2], bboxes[:,3]
+    areas = (y_max - y_min + 1) * (x_max - x_min + 1)
+    if keep_axis:
+        return  areas[:, None]
+    return areas
+
+def show_image(img, anns, ct=None, radius_h=None, radius_w=None):
+    if radius_h is not None and radius_w is not None:
+        radius_h = radius_h * 4.
+        radius_w = radius_w * 4.
+    for i in range(len(anns)):
+        ann = anns[i]
+        x, y, w, h = ann['bbox']
+        ann_img = cv2.rectangle(img,(int(x),int(y)),(int(x+w),int(y+h)),(0,255,255),2)
+        if radius_h is not None and radius_w is not None:
+            ann_img = cv2.rectangle(ann_img,(int(ct[0]-radius_w),int(ct[1]-radius_h)),(int(ct[0]+radius_w),int(ct[1]+radius_h)),(255,0,0),3)
+            ann_img = cv2.circle(ann_img,ct,2,(0,0,255),-1)
+    cv2.imshow('demo',ann_img)
+    cv2.waitKey(5000)
 
 def gaussian_radius(det_size, min_overlap=0.7):
   height, width = det_size
@@ -114,6 +134,11 @@ def gaussian_radius(det_size, min_overlap=0.7):
   r3  = (b3 + sq3) / 2
   return min(r1, r2, r3)
 
+def radius_generate(det_size,alpha=0.54):
+    height, width = det_size
+    radius_h = int(height / 2. * alpha)
+    radius_w = int(width / 2. * alpha)
+    return [radius_h, radius_w]
 
 def gaussian2D(shape, sigma=1):
     m, n = [(ss - 1.) / 2. for ss in shape]
@@ -123,14 +148,22 @@ def gaussian2D(shape, sigma=1):
     h[h < np.finfo(h.dtype).eps * h.max()] = 0
     return h
 
+def truncate_gaussian2D(shape,sigma_x, sigma_y):
+    m, n = [(ss - 1.)/2. for ss in shape]
+    y, x = np.ogrid[-m:m+1, -n:n+1]
+
+    h = np.exp(-(x * x)/(2*sigma_x*sigma_x) - (y * y)/(2*sigma_y*sigma_y))
+    h[h<np.finfo(h.dtype).eps * h.max()] = 0
+    return h
+
 def draw_umich_gaussian(heatmap, center, radius, k=1):
   diameter = 2 * radius + 1
   gaussian = gaussian2D((diameter, diameter), sigma=diameter / 6)
-  
+
   x, y = int(center[0]), int(center[1])
 
   height, width = heatmap.shape[0:2]
-    
+
   left, right = min(x, radius), min(width - x, radius + 1)
   top, bottom = min(y, radius), min(height - y, radius + 1)
 
@@ -150,11 +183,11 @@ def draw_dense_reg(regmap, heatmap, center, value, radius, is_offset=False):
     delta = np.arange(diameter*2+1) - radius
     reg[0] = reg[0] - delta.reshape(1, -1)
     reg[1] = reg[1] - delta.reshape(-1, 1)
-  
+
   x, y = int(center[0]), int(center[1])
 
   height, width = heatmap.shape[0:2]
-    
+
   left, right = min(x, radius), min(width - x, radius + 1)
   top, bottom = min(y, radius), min(height - y, radius + 1)
 
@@ -194,6 +227,23 @@ def draw_msra_gaussian(heatmap, center, sigma):
     heatmap[img_y[0]:img_y[1], img_x[0]:img_x[1]],
     g[g_y[0]:g_y[1], g_x[0]:g_x[1]])
   return heatmap
+
+def draw_truncate_gaussian(heatmap, heatmap_spec, center, radius_y, radius_x, k=1):
+    diameter_x, diameter_y = 2 * radius_x + 1, 2* radius_y + 1
+    gaussian = truncate_gaussian2D((diameter_y, diameter_x), sigma_x=diameter_x/6,sigma_y=diameter_y/6)
+
+    x, y = int(center[0]),int(center[1])
+    height , width = heatmap.shape[0:2]
+
+    left , right = min(x, radius_x), min(width - x, radius_x + 1)
+    top , bottom = min(y, radius_y), min(height - y, radius_y + 1)
+
+    masked_heatmap = heatmap[y-top : y+bottom, x-left : x + right]
+    masked_gaussian = gaussian[radius_y - top:radius_y + bottom,radius_x -left:radius_x + right]
+    heatmap_spec[y-top : y+bottom, x-left : x + right] = masked_gaussian
+    if min(masked_gaussian.shape) > 0 and min(masked_heatmap.shape) > 0:
+        np.maximum(masked_heatmap,masked_gaussian * k, out=masked_heatmap)
+    return heatmap
 
 def grayscale(image):
     return cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
