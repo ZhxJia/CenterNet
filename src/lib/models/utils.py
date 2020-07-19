@@ -48,3 +48,5 @@ def flip_lr_off(x, flip_idx):
     tmp[:, e[0], ...], tmp[:, e[1], ...] = \
       tmp[:, e[1], ...].copy(), tmp[:, e[0], ...].copy()
   return torch.from_numpy(tmp.reshape(shape)).to(x.device)
+
+# def generate_boxes()

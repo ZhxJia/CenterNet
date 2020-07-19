@@ -98,17 +98,9 @@ def box_areas(bboxes,keep_axis=False):
         return  areas[:, None]
     return areas
 
-def show_image(img, anns, ct=None, radius_h=None, radius_w=None):
-    if radius_h is not None and radius_w is not None:
-        radius_h = radius_h * 4.
-        radius_w = radius_w * 4.
-    for i in range(len(anns)):
-        ann = anns[i]
-        x, y, w, h = ann['bbox']
-        ann_img = cv2.rectangle(img,(int(x),int(y)),(int(x+w),int(y+h)),(0,255,255),2)
-        if radius_h is not None and radius_w is not None:
-            ann_img = cv2.rectangle(ann_img,(int(ct[0]-radius_w),int(ct[1]-radius_h)),(int(ct[0]+radius_w),int(ct[1]+radius_h)),(255,0,0),3)
-            ann_img = cv2.circle(ann_img,ct,2,(0,0,255),-1)
+def show_image(img, ann):
+    x, y, w, h = ann['bbox']
+    ann_img = cv2.rectangle(img,(int(x),int(y)),(int(x+w),int(y+h)),(0,255,255),2)
     cv2.imshow('demo',ann_img)
     cv2.waitKey(5000)
 

@@ -35,7 +35,7 @@ class CTDetDataset(data.Dataset):
     # anns.sort(key=(lambda x:x['area']), reverse = True) # 根据面积降序排列
     anns.sort(key=(lambda x:x['bbox'][2] * x['bbox'][3]), reverse = True)
     num_objs = min(len(anns), self.max_objs)
-    self.alpha = 0.54
+    self.alpha = 0.32
 
     img = cv2.imread(img_path)
 
@@ -50,7 +50,7 @@ class CTDetDataset(data.Dataset):
       input_h, input_w = self.opt.input_h, self.opt.input_w
     
     flipped = False
-    if self.split == 'train':
+    if True:
       if not self.opt.not_rand_crop:
         s = s * np.random.choice(np.arange(0.6, 1.4, 0.1))
         w_border = self._get_border(128, img.shape[1])
@@ -75,6 +75,7 @@ class CTDetDataset(data.Dataset):
     inp = cv2.warpAffine(img, trans_input, 
                          (input_w, input_h),
                          flags=cv2.INTER_LINEAR)
+    # cv2.imwrite('inp.jpg',inp)
     inp = (inp.astype(np.float32) / 255.)
     if self.split == 'train' and not self.opt.no_color_aug:
       color_aug(self._data_rng, inp, self._eig_val, self._eig_vec)
@@ -94,8 +95,6 @@ class CTDetDataset(data.Dataset):
     reg = np.zeros((self.max_objs, 2), dtype=np.float32) # offset
     ind = np.zeros((self.max_objs), dtype=np.int64)
     reg_mask = np.zeros((self.max_objs), dtype=np.uint8)
-    # cat_spec_wh = np.zeros((self.max_objs, num_classes * 2), dtype=np.float32)
-    # cat_spec_mask = np.zeros((self.max_objs, num_classes * 2), dtype=np.uint8)
 
     draw_gaussian = draw_truncate_gaussian #draw_umich_gaussian
 
@@ -135,7 +134,7 @@ class CTDetDataset(data.Dataset):
 
         gt_det.append([ct[0] - w / 2, ct[1] - h / 2, 
                        ct[0] + w / 2, ct[1] + h / 2, 1, cls_id])
-    
+
     ret = {'input': inp, 'hm': hm, 'reg_mask': reg_mask, 'ind': ind, 'wh': wh ,'reg_weight': reg_weight}
     # if self.opt.dense_wh:
     #   hm_a = hm.max(axis=0, keepdims=True)

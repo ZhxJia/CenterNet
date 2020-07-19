@@ -10,7 +10,7 @@ from __future__ import print_function
 
 import torch
 import torch.nn as nn
-from .utils import _transpose_and_gather_feat
+# from .utils import _transpose_and_gather_feat
 import torch.nn.functional as F
 
 
@@ -204,19 +204,17 @@ class RegGiouLoss(nn.Module):
     avg_factor = mask.sum() + 1e-4
 
     if self.base_loc is None or H != self.base_loc.shape[1] or W != self.base_loc.shape[2]:
-      loc_x = torch.arange(0, W, dtype=torch.float32, device=pred_hm.device)
-      loc_y = torch.arange(0, H, dtype=torch.float32, device=pred_hm.device)
+      loc_x = torch.arange(0, W, dtype=torch.float32, device=pred_wh.device)
+      loc_y = torch.arange(0, H, dtype=torch.float32, device=pred_wh.device)
       loc_y, loc_x = torch.meshgrid(loc_y, loc_x)
       self.base_loc = torch.stack((loc_y, loc_x), dim=0) # (2,H,W)
 
     pred_boxes = torch.cat((self.base_loc - pred_wh[:, [0, 1]],
-                            self.base_loc + pred_wh[:, [2, 3]]), dim=1).permute(0, 2, 3, 1).contiguous() # （batch,h,w,4）
-    target_boxes = target_boxes.permute(0, 2, 3, 1).contiguous()  # [batch, h, w, 4]
+                            self.base_loc + pred_wh[:, [2, 3]]), dim=1).permute(0, 2, 3, 1) # （batch,h,w,4）
+    target_boxes = target_boxes.permute(0, 2, 3, 1)  # [batch, h, w, 4]
     #TODO debug:
     pos_mask = mask > 0 #[batch, 128, 128]
     mask = mask[pos_mask].float()
-    # if avg_factor is None:
-    #   avg_factor = torch.sum(pos_mask).float().item() + 1e-6
 
     pd_boxes = pred_boxes[pos_mask].view(-1,4) #[num_boxes, 4]
     gt_boxes = target_boxes[pos_mask].view(-1,4) #[num_boxes, 4]
@@ -324,5 +322,5 @@ if __name__ == "__main__":
                            [41, 140, 115, 384]],dtype=torch.float32)
 
     loss = RegGiouLoss
-    # giou_loss = loss(pred,gt,)
+    giou_loss = _generalized_iou(pred+1000,gt)
     print(giou_loss)

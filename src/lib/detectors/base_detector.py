@@ -37,14 +37,14 @@ class BaseDetector(object):
   def pre_process(self, image, scale, meta=None):
     height, width = image.shape[0:2]
     new_height = int(height * scale)
-    new_width  = int(width * scale)
+    new_width = int(width * scale)
     if self.opt.fix_res:
       inp_height, inp_width = self.opt.input_h, self.opt.input_w
       c = np.array([new_width / 2., new_height / 2.], dtype=np.float32)
       s = max(height, width) * 1.0
     else:
       inp_height = (new_height | self.opt.pad) + 1
-      inp_width = (new_width | self.opt.pad) + 1
+      inp_width = (new_width | self.opt.pad) + 1  # 不足opt.pad 补到opt.pad否则加上
       c = np.array([new_width // 2, new_height // 2], dtype=np.float32)
       s = np.array([inp_width, inp_height], dtype=np.float32)
 
@@ -59,12 +59,14 @@ class BaseDetector(object):
     if self.opt.flip_test:
       images = np.concatenate((images, images[:, :, :, ::-1]), axis=0)
     images = torch.from_numpy(images)
-    meta = {'c': c, 's': s, 
-            'out_height': inp_height // self.opt.down_ratio, 
+    meta = {'c': c, 's': s,
+            'out_height': inp_height // self.opt.down_ratio,
             'out_width': inp_width // self.opt.down_ratio}
     return images, meta
 
   def process(self, images, return_time=False):
+    raise NotImplementedError
+  def get_boxes(self, images, return_time=False):
     raise NotImplementedError
 
   def post_process(self, dets, meta, scale=1):
@@ -113,7 +115,7 @@ class BaseDetector(object):
       pre_process_time = time.time()
       pre_time += pre_process_time - scale_start_time
       
-      output, dets, forward_time = self.process(images, return_time=True)
+      output, dets, forward_time = self.get_boxes(images, return_time=True)
 
       torch.cuda.synchronize()
       net_time += forward_time - pre_process_time
@@ -142,3 +144,54 @@ class BaseDetector(object):
     return {'results': results, 'tot': tot_time, 'load': load_time,
             'pre': pre_time, 'net': net_time, 'dec': dec_time,
             'post': post_time, 'merge': merge_time}
+
+
+
+if __name__ == "__main__":
+  image = cv2.imread('C:\\Users\\jia_z\\Desktop\\Center_series\\CenterNet\\data\\coco\\val2017\\000000397133.jpg')
+  print(image.shape)
+  def pre_process(image, scale, meta=None):
+    fix_res = True
+    input_h ,input_w = 512, 512
+    pad = 127
+    flip_test = False
+    mean = np.array([0.40789654, 0.44719302, 0.47026115],
+                    dtype=np.float32).reshape(1, 1, 3)
+    std = np.array([0.28863828, 0.27408164, 0.27809835],
+                   dtype=np.float32).reshape(1, 1, 3)
+    down_ratio = 4.0
+
+    height, width = image.shape[0:2]
+    new_height = int(height * scale)
+    new_width  = int(width * scale)
+    if fix_res:
+      inp_height, inp_width = input_h, input_w
+      c = np.array([new_width / 2., new_height / 2.], dtype=np.float32)
+      s = max(height, width) * 1.0
+    else:
+      inp_height = (new_height | pad) + 1
+      inp_width = (new_width | pad) + 1  #不足opt.pad 补到opt.pad否则加上
+      c = np.array([new_width // 2, new_height // 2], dtype=np.float32) #源图像的中心点
+      s = np.array([inp_width, inp_height], dtype=np.float32)
+
+    trans_input = get_affine_transform(c, s, 0, [inp_width, inp_height])
+    resized_image = cv2.resize(image, (new_width, new_height))
+    inp_image = cv2.warpAffine(
+      resized_image, trans_input, (inp_width, inp_height),
+      flags=cv2.INTER_LINEAR)
+    print(inp_image.shape)
+    cv2.imshow('inp',inp_image)
+    cv2.waitKey(0)
+    inp_image = ((inp_image / 255. - mean) / std).astype(np.float32)
+
+    images = inp_image.transpose(2, 0, 1).reshape(1, 3, inp_height, inp_width)
+    if True:
+      images = np.concatenate((images, images[:, :, :, ::-1]), axis=0)
+    images = torch.from_numpy(images)
+    meta = {'c': c, 's': s,
+            'out_height': inp_height // down_ratio,
+            'out_width': inp_width // down_ratio}
+    return images, meta
+
+  images, meta =  pre_process(image, scale = 1 , meta=None)
+  print(images.shape)

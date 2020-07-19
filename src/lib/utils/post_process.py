@@ -81,7 +81,7 @@ def ddd_post_process(dets, c, s, calibs, opt):
 
 
 def ctdet_post_process(dets, c, s, h, w, num_classes):
-  # dets: batch x max_dets x dim
+  # dets: batch x max_dets x dim, dim: bboxes:4 scores:1, clses:1
   # return 1-based class det dict
   ret = []
   for i in range(dets.shape[0]):
