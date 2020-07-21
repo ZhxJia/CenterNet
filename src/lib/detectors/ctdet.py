@@ -65,6 +65,13 @@ class CtdetDetector(BaseDetector):
                 return output, dets
 
     def post_process(self, dets, meta, scale=1):
+        '''
+        Input:
+            dets:[bboxes, scores, clses] shape: batch * max_objects * (4+1+1)
+            meta: image center, scale, out_height, out_width(128)
+        Output:
+            bbox in heatmap to raw image
+        '''
         dets = dets.detach().cpu().numpy()
         dets = dets.reshape(1, -1, dets.shape[2])
         dets = ctdet_post_process(
@@ -86,7 +93,7 @@ class CtdetDetector(BaseDetector):
             [results[j][:, 4] for j in range(1, self.num_classes + 1)])
         if len(scores) > self.max_per_image:
             kth = len(scores) - self.max_per_image
-            thresh = np.partition(scores, kth)[kth]
+            thresh = np.partition(scores, kth)[kth] #找出临界值
             for j in range(1, self.num_classes + 1):
                 keep_inds = (results[j][:, 4] >= thresh)
                 results[j] = results[j][keep_inds]

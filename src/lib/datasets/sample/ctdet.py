@@ -26,6 +26,12 @@ class CTDetDataset(data.Dataset):
         i *= 2
     return border // i
 
+  def _generate_base_loc(self, H, W):
+    loc_x = np.arange(0, W, dtype=np.float32)
+    loc_y = np.arange(0, H, dtype=np.float32)
+    loc_y, loc_x = np.meshgrid(loc_y,loc_x)
+    return np.stack((loc_x, loc_y), axis=0)
+
   def __getitem__(self, index):
     img_id = self.images[index]
     file_name = self.coco.loadImgs(ids=[img_id])[0]['file_name']
@@ -35,7 +41,6 @@ class CTDetDataset(data.Dataset):
     # anns.sort(key=(lambda x:x['area']), reverse = True) # 根据面积降序排列
     anns.sort(key=(lambda x:x['bbox'][2] * x['bbox'][3]), reverse = True)
     num_objs = min(len(anns), self.max_objs)
-    self.alpha = 0.32
 
     img = cv2.imread(img_path)
 
@@ -95,6 +100,7 @@ class CTDetDataset(data.Dataset):
     reg = np.zeros((self.max_objs, 2), dtype=np.float32) # offset
     ind = np.zeros((self.max_objs), dtype=np.int64)
     reg_mask = np.zeros((self.max_objs), dtype=np.uint8)
+    # base_loc = self._generate_base_loc(output_h, output_w)
 
     draw_gaussian = draw_truncate_gaussian #draw_umich_gaussian
 
@@ -113,7 +119,7 @@ class CTDetDataset(data.Dataset):
       bbox[[1, 3]] = np.clip(bbox[[1, 3]], 0, output_h - 1)
       h, w = bbox[3] - bbox[1], bbox[2] - bbox[0]
       if h > 0 and w > 0:
-        radius_h, radius_w = radius_generate((math.ceil(h), math.ceil(w)),alpha=self.alpha)
+        radius_h, radius_w = radius_generate((math.ceil(h), math.ceil(w)),alpha=self.opt.hm_radius)
         radius_h, radius_w = max(0, int(radius_h)), max(0, int(radius_w))
         # radius = self.opt.hm_gauss if self.opt.mse_loss else radius
         ct = np.array(
@@ -136,14 +142,7 @@ class CTDetDataset(data.Dataset):
                        ct[0] + w / 2, ct[1] + h / 2, 1, cls_id])
 
     ret = {'input': inp, 'hm': hm, 'reg_mask': reg_mask, 'ind': ind, 'wh': wh ,'reg_weight': reg_weight}
-    # if self.opt.dense_wh:
-    #   hm_a = hm.max(axis=0, keepdims=True)
-    #   dense_wh_mask = np.concatenate([hm_a, hm_a], axis=0)
-    #   ret.update({'dense_wh': dense_wh, 'dense_wh_mask': dense_wh_mask})
-    #   del ret['wh']
-    # elif self.opt.cat_spec_wh:
-    #   ret.update({'cat_spec_wh': cat_spec_wh, 'cat_spec_mask': cat_spec_mask})
-    #   del ret['wh']
+
     if self.opt.reg_offset:
       ret.update({'reg': reg})
     if self.opt.debug > 0 or not self.split == 'train':

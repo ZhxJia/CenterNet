@@ -35,6 +35,9 @@ class BaseDetector(object):
     self.pause = True
 
   def pre_process(self, image, scale, meta=None):
+    '''
+    input images transform to network input tensor
+    '''
     height, width = image.shape[0:2]
     new_height = int(height * scale)
     new_width = int(width * scale)
@@ -101,7 +104,7 @@ class BaseDetector(object):
     load_time += (loaded_time - start_time)
     
     detections = []
-    for scale in self.scales:
+    for scale in self.scales: #multi scale
       scale_start_time = time.time()
       if not pre_processed:
         images, meta = self.pre_process(image, scale, meta)
@@ -115,7 +118,7 @@ class BaseDetector(object):
       pre_process_time = time.time()
       pre_time += pre_process_time - scale_start_time
       
-      output, dets, forward_time = self.get_boxes(images, return_time=True)
+      output, dets, forward_time = self.process(images, return_time=True)
 
       torch.cuda.synchronize()
       net_time += forward_time - pre_process_time
@@ -125,7 +128,7 @@ class BaseDetector(object):
       if self.opt.debug >= 2:
         self.debug(debugger, images, dets, output, scale)
       
-      dets = self.post_process(dets, meta, scale)
+      dets = self.post_process(dets, meta, scale) #dict:{class: [box,score]}
       torch.cuda.synchronize()
       post_process_time = time.time()
       post_time += post_process_time - decode_time

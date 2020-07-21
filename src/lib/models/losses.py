@@ -108,8 +108,38 @@ def _generalized_iou(pred, gt):
   enclose_area = enclose_wh[:,0] * enclose_wh[:,1] # C
   u = ap + ag - overlap
   gious = ious - (enclose_area-u) / (enclose_area + 1e-6)
-  giou_metric = 1.0 - gious
-  return giou_metric
+  gious_metric = 1.0 - gious
+  return gious_metric
+
+def _distance_iou(pred, gt):
+    '''
+    Input:
+        pred: (x1,y1,x2,y2)
+        gt: (x1,y1,x2,y2)
+    Output:
+        DIOU: IOU - [p(pred,gt)]^2/c^2
+    '''
+    inter_lt = torch.max(pred[:, :2], gt[:, :2])
+    inter_rb = torch.min(pred[:, 2:], gt[:, 2:])
+    wh = (inter_rb - inter_lt).clamp(min=0)  # overlap
+    center_x1 = (pred[:, 2] + pred[:, 0]) / 2.
+    center_y1 = (pred[:, 3] + pred[:, 1]) / 2.
+    center_x2 = (gt[:, 2] + gt[:, 0]) / 2.
+    center_y2 = (gt[:, 3] + gt[:, 1]) / 2. # center
+    outer_lt = torch.min(pred[:, :2], gt[:, :2])
+    outer_rb = torch.max(pred[:, 2:], gt[:, 2:])
+    outer = (outer_rb - outer_lt).clamp(min=0) # outer
+
+    overlap = wh[:, 0] * wh[:, 1]
+    ap = (pred[:, 2] - pred[:, 0]) * (pred[:, 3] - pred[:, 1])
+    ag = (gt[:, 2] - gt[:, 0]) * (gt[:, 3] - gt[:, 1])
+    ious = overlap / (ap + ag - overlap + 1e-6)
+    inter_diag = (center_x2 - center_x1)**2 + (center_y2 - center_y1)**2
+    outer_diag = (outer[:, 0] ** 2) + (outer[:, 1] ** 2)
+    dious = ious - (inter_diag) / outer_diag
+    dious = torch.clamp(dious, min=-1.0, max=1.0)
+    dious_metric = 1.0 - dious
+    return dious_metric
 
 
 def _slow_reg_loss(regr, gt_regr, mask):
@@ -177,6 +207,7 @@ class RegL1Loss(nn.Module):
     loss = loss / (mask.sum() + 1e-4)
     return loss
 
+# def box_transform()
 class RegGiouLoss(nn.Module):
   '''
   https://arxiv.org/pdf/1902.09630.pdf
@@ -197,8 +228,8 @@ class RegGiouLoss(nn.Module):
     super(RegGiouLoss,self).__init__()
     self.base_loc = None
 
-  def forward(self, pred_hm, pred_wh, target_hm,target_boxes ,weight, avg_factor=None):
-    H, W = pred_hm.shape[2:]
+  def forward(self,pred_wh,target_boxes ,weight, avg_factor=None):
+    H, W = pred_wh.shape[2:]
 
     mask = weight.view(-1, H, W)
     avg_factor = mask.sum() + 1e-4
@@ -207,7 +238,7 @@ class RegGiouLoss(nn.Module):
       loc_x = torch.arange(0, W, dtype=torch.float32, device=pred_wh.device)
       loc_y = torch.arange(0, H, dtype=torch.float32, device=pred_wh.device)
       loc_y, loc_x = torch.meshgrid(loc_y, loc_x)
-      self.base_loc = torch.stack((loc_y, loc_x), dim=0) # (2,H,W)
+      self.base_loc = torch.stack((loc_x, loc_y), dim=0) # (2,H,W)
 
     pred_boxes = torch.cat((self.base_loc - pred_wh[:, [0, 1]],
                             self.base_loc + pred_wh[:, [2, 3]]), dim=1).permute(0, 2, 3, 1) # （batch,h,w,4）
@@ -313,14 +344,12 @@ def compute_rot_loss(output, target_bin, target_res, mask):
 
 if __name__ == "__main__":
     pred = torch.tensor([[125, 456, 321, 647],
-                          [25, 321, 216, 645],
-                          [111, 195, 341, 679],
-                          [30, 134, 105, 371]],dtype=torch.float32)
-    gt = torch.tensor([[132, 407, 301, 667],
-                           [29, 322, 234, 664],
-                           [109, 201, 315, 680],
-                           [41, 140, 115, 384]],dtype=torch.float32)
+                          [25, 321, 216, 645]],dtype=torch.float32)
+    gt = torch.tensor([[125, 455, 321, 667],
+                           [29, 322, 234, 664]],dtype=torch.float32)
 
     loss = RegGiouLoss
-    giou_loss = _generalized_iou(pred+1000,gt)
+    giou_loss = _generalized_iou(pred,gt)
     print(giou_loss)
+    diou_loss = _distance_iou(pred,gt)
+    print(diou_loss)

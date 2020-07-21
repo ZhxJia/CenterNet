@@ -518,7 +518,7 @@ def ttf_ctdet_decode(heat, wh, reg=None, cat_spec_wh=False, K=100):
         reg = _transpose_and_gather_feat(reg, inds)
         reg = reg.view(batch, K, 2)
         xs = xs.view(batch, K, 1) + reg[:, :, 0:1]
-        ys = ys.view(batch, k, 1) + reg[:, :, 1:2]
+        ys = ys.view(batch, K, 1) + reg[:, :, 1:2]
     else:
         xs = xs.view(batch, K, 1) + 0.5
         ys = ys.view(batch, K, 1) + 0.5
