@@ -128,8 +128,14 @@ def gaussian_radius(det_size, min_overlap=0.7):
 
 def radius_generate(det_size,alpha=0.54):
     height, width = det_size
-    radius_h = int(height / 2. * alpha)
-    radius_w = int(width / 2. * alpha)
+    radius_h = height / 2. * alpha
+    radius_w = width / 2. * alpha
+    return [radius_h, radius_w]
+
+def radius_generate_iou(det_size,overlap=0.7):
+    height, width = det_size
+    radius_w = (1. - overlap) / (1. + overlap) * width
+    radius_h = (1. - overlap) / (1. + overlap) * height
     return [radius_h, radius_w]
 
 def gaussian2D(shape, sigma=1):

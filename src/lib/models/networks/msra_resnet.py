@@ -34,13 +34,13 @@ def conv3x3(in_planes, out_planes, stride=1):
 class BasicBlock(nn.Module):
     expansion = 1
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, norm_func=None):
         super(BasicBlock, self).__init__()
         self.conv1 = conv3x3(inplanes, planes, stride)
-        self.bn1 = nn.BatchNorm2d(planes, momentum=BN_MOMENTUM)
+        self.bn1 = _get_norm_func(planes, norm_func=norm_func)
         self.relu = nn.ReLU(inplace=True)
         self.conv2 = conv3x3(planes, planes)
-        self.bn2 = nn.BatchNorm2d(planes, momentum=BN_MOMENTUM)
+        self.bn2 = _get_norm_func(planes, norm_func=norm_func)
         self.downsample = downsample
         self.stride = stride
 
@@ -66,17 +66,18 @@ class BasicBlock(nn.Module):
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, norm_func=None):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(planes, momentum=BN_MOMENTUM)
+        self.bn1 = _get_norm_func(planes, norm_func=norm_func)
+
         self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
                                padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(planes, momentum=BN_MOMENTUM)
+        self.bn2 = _get_norm_func(planes, norm_func=norm_func)
         self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size=1,
                                bias=False)
-        self.bn3 = nn.BatchNorm2d(planes * self.expansion,
-                                  momentum=BN_MOMENTUM)
+        self.bn3 = _get_norm_func(planes * self.expansion,
+                                  norm_func=norm_func)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
         self.stride = stride
@@ -106,27 +107,30 @@ class Bottleneck(nn.Module):
 
 class PoseResNet(nn.Module):
 
-    def __init__(self, block, layers, heads, head_conv, **kwargs):
+    def __init__(self, block, layers, heads, head_conv, norm_func, **kwargs):
         self.inplanes = 64
         self.deconv_with_bias = False
         self.heads = heads
+        self.norm_func = norm_func
 
         super(PoseResNet, self).__init__()
         self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
                                bias=False)
-        self.bn1 = nn.BatchNorm2d(64, momentum=BN_MOMENTUM)
+        self.bn1 = _get_norm_func(64, norm_func=norm_func)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.layer1 = self._make_layer(block, 64, layers[0])
         self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
         self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
         self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
+        self.relu_wh = nn.ReLU(inplace=True)
 
         # used for deconv layers
         self.deconv_layers = self._make_deconv_layer(
             3,
             [256, 256, 256],
             [4, 4, 4],
+            norm_func=norm_func
         )
         # self.final_layer = []
 
@@ -157,14 +161,15 @@ class PoseResNet(nn.Module):
             downsample = nn.Sequential(
                 nn.Conv2d(self.inplanes, planes * block.expansion,
                           kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion, momentum=BN_MOMENTUM),
+                         _get_norm_func(planes * block.expansion, self.norm_func),
+
             )
 
         layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample))
+        layers.append(block(self.inplanes, planes, stride, downsample, norm_func=self.norm_func))
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes))
+            layers.append(block(self.inplanes, planes, norm_func=self.norm_func))
 
         return nn.Sequential(*layers)
 
@@ -181,7 +186,7 @@ class PoseResNet(nn.Module):
 
         return deconv_kernel, padding, output_padding
 
-    def _make_deconv_layer(self, num_layers, num_filters, num_kernels):
+    def _make_deconv_layer(self, num_layers, num_filters, num_kernels, norm_func):
         assert num_layers == len(num_filters), \
             'ERROR: num_deconv_layers is different len(num_deconv_filters)'
         assert num_layers == len(num_kernels), \
@@ -202,7 +207,7 @@ class PoseResNet(nn.Module):
                     padding=padding,
                     output_padding=output_padding,
                     bias=self.deconv_with_bias))
-            layers.append(nn.BatchNorm2d(planes, momentum=BN_MOMENTUM))
+            layers.append(_get_norm_func(planes, norm_func=norm_func))
             layers.append(nn.ReLU(inplace=True))
             self.inplanes = planes
 
@@ -222,7 +227,13 @@ class PoseResNet(nn.Module):
         x = self.deconv_layers(x)
         ret = {}
         for head in self.heads:
-            ret[head] = self.__getattr__(head)(x)
+            # ret[head] = self.__getattr__(head)(x)
+            y = self.__getattr__(head)(x)
+            if head is 'wh':
+                y = self.relu_wh(y) * 16.0
+            ret[head] = y
+
+
         return [ret]
 
     def init_weights(self, num_layers, pretrained=True):
@@ -235,7 +246,7 @@ class PoseResNet(nn.Module):
                     nn.init.normal_(m.weight, std=0.001)
                     if self.deconv_with_bias:
                         nn.init.constant_(m.bias, 0)
-                elif isinstance(m, nn.BatchNorm2d):
+                elif isinstance(m, nn.BatchNorm2d) or isinstance(m, nn.GroupNorm):
                     # print('=> init {}.weight as 1'.format(name))
                     # print('=> init {}.bias as 0'.format(name))
                     nn.init.constant_(m.weight, 1)
@@ -272,9 +283,35 @@ resnet_spec = {18: (BasicBlock, [2, 2, 2, 2]),
                152: (Bottleneck, [3, 8, 36, 3])}
 
 
-def get_pose_net(num_layers, heads, head_conv):
+def _get_norm_func(num_features, norm_func):
+    num_groups = 32
+    if norm_func == 'BN':
+        return nn.BatchNorm2d(num_features, momentum=BN_MOMENTUM)
+    elif norm_func == 'GN':
+        if num_features % 32 == 0:
+            return nn.GroupNorm(num_groups, num_features)
+        else:
+            return nn.GroupNorm(num_groups // 2, num_features)
+    else:
+        raise ValueError
+
+def get_pose_net(num_layers, heads, head_conv, norm_func):
   block_class, layers = resnet_spec[num_layers]
 
-  model = PoseResNet(block_class, layers, heads, head_conv=head_conv)
+  model = PoseResNet(block_class, layers, heads, head_conv=head_conv, norm_func=norm_func)
   model.init_weights(num_layers, pretrained=True)
   return model
+
+if __name__ == "__main__":
+    # test model
+    from opts import opts
+    import torch
+    from datasets.dataset_factory import get_dataset
+    opt = opts().parse()
+    dataset = get_dataset('kitti', 'ddd')
+    opt = opts().update_dataset_info_and_set_heads(opt, dataset)
+    model = get_pose_net(18, heads=opt.heads, head_conv=64, norm_func=opt.norm_func)
+    input = torch.FloatTensor(1, 3, 384, 1280) #
+    output = model(input)
+    print(model)
+

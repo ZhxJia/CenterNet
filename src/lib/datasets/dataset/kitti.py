@@ -35,6 +35,7 @@ class KITTI(data.Dataset):
     self.max_objs = 50
     self.class_name = [
       '__background__', 'Pedestrian', 'Car', 'Cyclist']
+    #'0 Pedestrian', '1 Car', '2 Cyclist', '3 Van', '4 Truck',  '5 Person_sitting',' 6 Tram', '7 Misc', '8 DontCare'
     self.cat_ids = {1:0, 2:1, 3:2, 4:-3, 5:-3, 6:-2, 7:-99, 8:-99, 9:-1}
     
     self._data_rng = np.random.RandomState(123)

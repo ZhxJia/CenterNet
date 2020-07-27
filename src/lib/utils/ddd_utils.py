@@ -47,6 +47,11 @@ def compute_orientation_3d(dim, location, rotation_y):
   return orientation_3d.transpose(1, 0)
 
 def draw_box_3d(image, corners, c=(0, 0, 255)):
+  '''
+  Input:
+    corners: the box3d corners projected to image plane
+    c: color
+  '''
   face_idx = [[0,1,5,4],
               [1,2,6, 5],
               [2,3,7,6],
@@ -62,6 +67,27 @@ def draw_box_3d(image, corners, c=(0, 0, 255)):
       cv2.line(image, (corners[f[1], 0], corners[f[1], 1]),
                (corners[f[3], 0], corners[f[3], 1]), c, 1, lineType=cv2.LINE_AA)
   return image
+
+def draw_box_2d(image, corners, c=(0, 0, 255)):
+    '''
+    Input:
+        corners: the box2d corners (x1, y1, x2, y2)
+    '''
+    image = image.copy()
+    cv2.rectangle(image, (corners[0],corners[1]), (corners[2],corners[3]), c, 2)
+    return image
+
+def draw_points(image, points, c=(0, 0, 255)):
+    '''
+    Input:
+        points: nx2
+    '''
+    points = points.astype(int)
+    image = image.copy()
+    for i in range(points.shape[0]):
+        cv2.circle(image, (points[i, 0], points[i, 1]), 3, c, -1)
+    return image
+
 
 def unproject_2d_to_3d(pt_2d, depth, P):
   # pts_2d: 2
@@ -115,17 +141,65 @@ def project_3d_bbox(location, dim, rotation_y, calib):
   box_2d = project_to_image(box_3d, calib)
   return box_2d
 
+def encode_label(calib, rotation_y, dim, location):
+    '''
+    Output:
+        proj_ct: the projected center point of the local 3d center [2]
+        box_2d: the 3d corners projected to the image plane [4]
+        corners_3d: the 8 corners in camera coordinate 8x3
+        corners_2d: the 8 corners projected to  image plane 8x2
+    '''
+    x, y, z = location[0], location[1], location[2]
+    l, w, h = dim[2], dim[1], dim[0]
+
+    corners_3d = compute_box_3d(dim, location, rotation_y) # 8x3
+    corners_2d = project_to_image(corners_3d, calib) # 8x2
+
+    loc_center = np.expand_dims(np.array([x, y - h / 2, z]), axis=0)
+    proj_ct = project_to_image(loc_center, calib)
+
+    box_2d = np.array([min(corners_2d[:, 0]), min(corners_2d[:, 1]),
+                       max(corners_2d[:, 0]), max(corners_2d[:, 1])])
+    return proj_ct, box_2d, corners_3d, corners_2d
+
+
+
+
+
+
+
 
 if __name__ == '__main__':
-  calib = np.array(
-    [[7.070493000000e+02, 0.000000000000e+00, 6.040814000000e+02, 4.575831000000e+01],
-     [0.000000000000e+00, 7.070493000000e+02, 1.805066000000e+02, -3.454157000000e-01],
-     [0.000000000000e+00, 0.000000000000e+00, 1.000000000000e+00, 4.981016000000e-03]],
-    dtype=np.float32)
-  alpha = -0.20
-  tl = np.array([712.40, 143.00], dtype=np.float32)
-  br = np.array([810.73, 307.92], dtype=np.float32)
-  ct = (tl + br) / 2
-  rotation_y = 0.01
-  print('alpha2rot_y', alpha2rot_y(alpha, ct[0], calib[0, 2], calib[0, 0]))
-  print('rotation_y', rotation_y)
+    def read_clib(calib_path):
+        f = open(calib_path, 'r')
+        for i, line in enumerate(f):
+            if i == 2:
+                calib = np.array(line[:-1].split(' ')[1:], dtype=np.float32)
+                calib = calib.reshape(3, 4)
+                return calib
+    dim = [1.67, 1.87, 3.69]
+    rotation_y = 1.57
+    location = [-16.53, 2.39, 58.49]
+    calib = read_clib("../../../data/kitti/training/calib/000001.txt")
+
+    proj_ct, proj_box2d, corners_3d, corners_2d = encode_label(calib, rotation_y, dim, location)
+    box_2d = np.array([387.63, 181.54, 423.81, 203.12])
+    raw_img = cv2.imread('../../../data/kitti/training/image_2/000001.png')
+    cv2.imshow('0001',raw_img)
+    cv2.waitKey(1000)
+    image = draw_box_3d(raw_img.copy(),corners_2d)
+    cv2.imshow('0002',image)
+    cv2.waitKey(1000)
+    img2d = draw_box_2d(raw_img.copy(), proj_box2d)
+    cv2.imshow('0003',img2d)
+    cv2.waitKey(1000)
+    imgpoint = draw_points(raw_img, proj_ct)
+    cv2.imshow('0004',imgpoint)
+    cv2.waitKey(0)
+    alpha = -0.20
+    tl = np.array([712.40, 143.00], dtype=np.float32)
+    br = np.array([810.73, 307.92], dtype=np.float32)
+    ct = (tl + br) / 2
+    rotation_y = 0.01
+    print('alpha2rot_y', alpha2rot_y(alpha, ct[0], calib[0, 2], calib[0, 0]))
+    print('rotation_y', rotation_y)
