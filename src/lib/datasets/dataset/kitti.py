@@ -19,6 +19,10 @@ class KITTI(data.Dataset):
   default_resolution = [384, 1280]
   mean = np.array([0.485, 0.456, 0.406], np.float32).reshape(1, 1, 3)
   std = np.array([0.229, 0.224, 0.225], np.float32).reshape(1, 1, 3)
+  default_reference_size = np.array([[1.73, 0.67, 0.88],
+                                     [1.63, 1.53, 3.88],
+                                     [1.70, 0.58, 1.78]]) #HWL for pedestrian, car, cyclist
+  default_reference_depth = np.array([28.01, 16.32]) # mu_z , sigma_z
 
   def __init__(self, opt, split):
     super(KITTI, self).__init__()

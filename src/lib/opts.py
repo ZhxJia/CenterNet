@@ -263,7 +263,8 @@ class opts(object):
     input_h, input_w = dataset.default_resolution
     opt.mean, opt.std = dataset.mean, dataset.std
     opt.num_classes = dataset.num_classes
-
+    opt.reference_size = dataset.default_reference_size
+    opt.reference_depth = dataset.default_reference_depth
     # input_h(w): opt.input_h overrides opt.input_res overrides dataset default
     input_h = opt.input_res if opt.input_res > 0 else input_h
     input_w = opt.input_res if opt.input_res > 0 else input_w

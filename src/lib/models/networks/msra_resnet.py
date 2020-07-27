@@ -162,7 +162,6 @@ class PoseResNet(nn.Module):
                 nn.Conv2d(self.inplanes, planes * block.expansion,
                           kernel_size=1, stride=stride, bias=False),
                          _get_norm_func(planes * block.expansion, self.norm_func),
-
             )
 
         layers = []
@@ -229,11 +228,9 @@ class PoseResNet(nn.Module):
         for head in self.heads:
             # ret[head] = self.__getattr__(head)(x)
             y = self.__getattr__(head)(x)
-            if head is 'wh':
-                y = self.relu_wh(y) * 16.0
+            # if head is 'wh':
+            #     y = self.relu_wh(y) * 16.0
             ret[head] = y
-
-
         return [ret]
 
     def init_weights(self, num_layers, pretrained=True):
