@@ -12,57 +12,84 @@ from utils.debugger import Debugger
 from utils.post_process import ddd_post_process
 from utils.oracle_utils import gen_oracle_map
 from .base_trainer import BaseTrainer
+from models.coder import SMOKECoder
+from models.utils import _transpose_and_gather_feat, _gather_mask_feat
 
 
-class DddLoss(torch.nn.Module):
+class Smk3dLoss(torch.nn.Module):
     def __init__(self, opt):
-        super(DddLoss, self).__init__()
-        self.crit = torch.nn.MSELoss() if opt.mse_loss else FocalLoss()
-        self.crit_reg = L1Loss()
-        self.crit_rot = BinRotLoss()
+        super(Smk3dLoss, self).__init__()
+        self.crit = FocalLoss()
+        self.crit_reg = L1Loss() if opt.reg_loss == 'l1' else \
+            L1Loss() if opt.reg_loss == 'disl1' else None
         self.opt = opt
+        self.smoke_coder = SMOKECoder(opt.reference_depth, opt.reference_size, device='cpu')  # todo debug: device?
 
     def forward(self, outputs, batch):
         opt = self.opt
 
-        hm_loss, dep_loss, rot_loss, dim_loss = 0, 0, 0, 0
+        hm_loss, ori_loss, dim_loss, loc_loss = 0, 0, 0, 0
         wh_loss, off_loss = 0, 0
         for s in range(opt.num_stacks):
             output = outputs[s]
             output['hm'] = _sigmoid(output['hm'])
-            output['dep'] = 1. / (output['dep'].sigmoid() + 1e-6) - 1.
+            predict_box3d = self.prepare_prediction(output, batch)
 
-            if opt.eval_oracle_dep:
-                output['dep'] = torch.from_numpy(gen_oracle_map(
-                    batch['dep'].detach().cpu().numpy(),
-                    batch['ind'].detach().cpu().numpy(),
-                    opt.output_w, opt.output_h)).to(opt.device)
+            hm_loss = self.crit(output['hm'], batch['hm'])
+            target_box3d = batch['reg']
 
-            hm_loss += self.crit(output['hm'], batch['hm']) / opt.num_stacks
-            if opt.dep_weight > 0:
-                dep_loss += self.crit_reg(output['dep'], batch['reg_mask'],
-                                          batch['ind'], batch['dep']) / opt.num_stacks
-            if opt.dim_weight > 0:
-                dim_loss += self.crit_reg(output['dim'], batch['reg_mask'],
-                                          batch['ind'], batch['dim']) / opt.num_stacks
-            if opt.rot_weight > 0:
-                rot_loss += self.crit_rot(output['rot'], batch['rot_mask'],
-                                          batch['ind'], batch['rotbin'],
-                                          batch['rotres']) / opt.num_stacks
-            if opt.reg_bbox and opt.wh_weight > 0:
-                wh_loss += self.crit_reg(output['wh'], batch['rot_mask'],
-                                         batch['ind'], batch['wh']) / opt.num_stacks
-            if opt.reg_offset and opt.off_weight > 0:
-                off_loss += self.crit_reg(output['reg'], batch['rot_mask'],
-                                          batch['ind'], batch['reg']) / opt.num_stacks
-        loss = opt.hm_weight * hm_loss + opt.dep_weight * dep_loss + \
-               opt.dim_weight * dim_loss + opt.rot_weight * rot_loss + \
-               opt.wh_weight * wh_loss + opt.off_weight * off_loss
+            if self.opt.reg_loss == 'disl1':
+                ori_loss = self.crit_reg(predict_box3d['ori'], batch['reg'], batch['reg_mask']) # todo debug： rot_mask or reg_mask
+                dim_loss = self.crit_reg(predict_box3d['dim'], batch['reg'], batch['reg_mask'])
+                loc_loss = self.crit_reg(predict_box3d['loc'], batch['reg'], batch['reg_mask'])
+                reg_loss = opt.ori_weight * ori_loss + opt.dim_weight * dim_loss + opt.loc_weight * loc_loss
+            elif self.opt.reg_loss == 'l1':
+                reg_loss = self.crit_reg(predict_box3d, batch['reg'], batch['reg_mask']) \
+                           * (opt.ori_weight + opt.dim_weight + opt.loc_weight) / 3
 
-        loss_stats = {'loss': loss, 'hm_loss': hm_loss, 'dep_loss': dep_loss,
-                      'dim_loss': dim_loss, 'rot_loss': rot_loss,
-                      'off_loss': off_loss}
+        loss = opt.hm_weight * hm_loss + reg_loss
+        loss_stats = {'loss': loss, 'hm_loss': hm_loss, 'reg_loss': reg_loss,
+                      'ori_loss': ori_loss, 'dim_loss': dim_loss, 'loc_loss': loc_loss}
         return loss, loss_stats
+
+    def prepare_prediction(self, preds, targets):
+        ind = targets['ind']
+        mask = targets['reg_mask']
+        pred_depths_offset = _transpose_and_gather_feat(preds['dep'], ind)  # Nx1x96x320 -> Nx50x1
+        pred_proj_offsets = _transpose_and_gather_feat(preds['offset'], ind)  # Nx2x96x320 -> Nx50x2
+        pred_dimensions_offsets = _transpose_and_gather_feat(preds['dim'], ind)  # Nx3x96x320 ->
+        pred_orientation = _transpose_and_gather_feat(preds['rot'], ind)  # Nx2x96x320 ->
+
+        pred_depths = self.smoke_coder.decode_depth(pred_depths_offset)  # Nx50x1
+
+        pred_dimensions = self.smoke_coder.decode_dimension(targets['cls_ids'], pred_dimensions_offsets)
+
+        pred_locations = self.smoke_coder.decode_location(targets['proj_cts'],
+                                                          pred_proj_offsets,
+                                                          pred_depths,
+                                                          pred_dimensions,
+                                                          targets['K'],
+                                                          targets['trans_mat'])
+        pred_rotys, _ = self.smoke_coder.decode_orientation(pred_orientation,
+                                                            targets['locs'])
+
+        if self.opt.reg_loss == 'disl1':
+            pred_box3d_rotys = self.smoke_coder.encode_box3d(pred_rotys,
+                                                             targets['dim'],
+                                                             targets['locs'])
+            pred_box3d_dims = self.smoke_coder.encode_box3d(targets['rotys'],
+                                                            pred_dimensions,
+                                                            targets['locs'])
+            pred_box3d_locs = self.smoke_coder.encode_box3d(targets['rotys'],
+                                                            targets['dim'],
+                                                            pred_locations)
+            return dict(ori=pred_box3d_rotys, dim=pred_box3d_dims, loc=pred_box3d_locs)
+
+        elif self.opt.reg_loss == "l1":
+            pred_box_3d = self.smoke_coder.encode_box3d(pred_rotys,
+                                                        pred_dimensions,
+                                                        pred_locations)
+            return pred_box_3d
 
 
 class Smk3dTrainer(BaseTrainer):
@@ -70,9 +97,9 @@ class Smk3dTrainer(BaseTrainer):
         super(Smk3dTrainer, self).__init__(opt, model, optimizer=optimizer)
 
     def _get_losses(self, opt):
-        loss_states = ['loss', 'hm_loss', 'dep_loss', 'dim_loss', 'rot_loss',
-                       'off_loss']
-        loss = DddLoss(opt)
+        loss_states = ['loss', 'hm_loss', 'reg_loss', 'ori_loss', 'dim_loss',
+                       'loc_loss']
+        loss = Smk3dLoss(opt)
         return loss_states, loss
 
     def debug(self, batch, output, iter_id):

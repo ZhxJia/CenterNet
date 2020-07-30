@@ -177,14 +177,19 @@ if __name__ == '__main__':
                 calib = np.array(line[:-1].split(' ')[1:], dtype=np.float32)
                 calib = calib.reshape(3, 4)
                 return calib
-    dim = [1.67, 1.87, 3.69]
-    rotation_y = 1.57
-    location = [-16.53, 2.39, 58.49]
-    calib = read_clib("../../../data/kitti/training/calib/000001.txt")
+    dim = [1.57, 1.65, 3.35]
+    rotation_y = -1.42
+    location = [4.43, 1.65, 5.2]
+    calib = read_clib("../../../data/kitti/training/calib/000010.txt")
+    depth = location[2]
+
 
     proj_ct, proj_box2d, corners_3d, corners_2d = encode_label(calib, rotation_y, dim, location)
-    box_2d = np.array([387.63, 181.54, 423.81, 203.12])
-    raw_img = cv2.imread('../../../data/kitti/training/image_2/000001.png')
+
+    # location = unproject_2d_to_3d(proj_ct[0], depth, calib)
+    # proj_ct, proj_box2d, corners_3d, corners_2d = encode_label(calib, rotation_y, dim, location)
+    box_2d = np.array([1013.39, 182.46, 1241.00, 374.00], dtype=np.float32)
+    raw_img = cv2.imread('../../../data/kitti/training/image_2/000010.png')
     cv2.imshow('0001',raw_img)
     cv2.waitKey(1000)
     image = draw_box_3d(raw_img.copy(),corners_2d)

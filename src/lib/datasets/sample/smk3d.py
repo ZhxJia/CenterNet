@@ -67,20 +67,19 @@ class SmkDataset(data.Dataset):
         num_classes = self.opt.num_classes
         trans_output = get_affine_transform(
             c, s, 0, [self.opt.output_w, self.opt.output_h])
+        trans_mat = np.concatenate((trans_output,np.array([[0, 0, 1]])), axis=0).astype(np.float32)
 
         # regression argument
         hm = np.zeros(
             (num_classes, self.opt.output_h, self.opt.output_w), dtype=np.float32)
         wh = np.zeros((self.max_objs, 2), dtype=np.float32)
         deps = np.zeros((self.max_objs, 1), dtype=np.float32)
-        # rotbin = np.zeros((self.max_objs, 2), dtype=np.int64)
-        # rotres = np.zeros((self.max_objs, 2), dtype=np.float32)
         dims = np.zeros((self.max_objs, 3), dtype=np.float32)
         locs = np.zeros((self.max_objs, 3), dtype=np.float32)
         rotys = np.zeros((self.max_objs), dtype=np.float32)
         ind = np.zeros((self.max_objs), dtype=np.int64)
-        reg_mask = np.zeros((self.max_objs), dtype=np.uint8)
-        rot_mask = np.zeros((self.max_objs), dtype=np.uint8)
+        reg_mask = np.zeros((self.max_objs, 1), dtype=np.uint8)
+        rot_mask = np.zeros((self.max_objs, 1), dtype=np.uint8)
         flip_mask = np.zeros((self.max_objs), dtype=np.uint8)
         corners_3ds = np.zeros((self.max_objs, 3, 8), dtype=np.float32)
         cls_ids = np.zeros((self.max_objs), dtype=np.float32)
@@ -89,6 +88,7 @@ class SmkDataset(data.Dataset):
 
         ann_ids = self.coco.getAnnIds(imgIds=[img_id])
         anns = self.coco.loadAnns(ids=ann_ids)
+
         num_objs = min(len(anns), self.max_objs)
         draw_gaussian = draw_umich_gaussian
         gt_det = []
@@ -149,12 +149,12 @@ class SmkDataset(data.Dataset):
                     rot_mask[k] = 1
 
         ret = {'input': inp, 'hm': hm,'dep': deps, 'dim': dims, 'ind': ind,
-               'reg_mask': reg_mask, 'reg': corners_3ds, 'proj_cts': proj_cts, 'K': calib,
+               'reg_mask': reg_mask, 'reg': corners_3ds, 'proj_cts': proj_cts, 'K': calib, 'trans_mat': trans_mat,
                'cls_ids': cls_ids, 'locs' : locs, 'rotys': rotys, 'rot_mask': rot_mask}
         if self.opt.reg_bbox:
             ret.update({'wh': wh})
         if self.opt.reg_offset:
-            ret.update({'reg': ct_offsets})
+            ret.update({'ct_offsets': ct_offsets})
         if self.opt.debug > 0 or not ('train' in self.split):
             gt_det = np.array(gt_det, dtype=np.float32) if len(gt_det) > 0 else \
                 np.zeros((1, 18), dtype=np.float32)

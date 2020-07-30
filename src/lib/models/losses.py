@@ -10,7 +10,7 @@ from __future__ import print_function
 
 import torch
 import torch.nn as nn
-# from .utils import _transpose_and_gather_feat
+from .utils import _transpose_and_gather_feat
 import torch.nn.functional as F
 
 
@@ -257,7 +257,7 @@ class NormRegL1Loss(nn.Module):
   def __init__(self):
     super(NormRegL1Loss, self).__init__()
   
-  def forward(self, output, mask, ind, target):
+  def forward(self, output, target, mask, ind):
     pred = _transpose_and_gather_feat(output, ind)
     mask = mask.unsqueeze(2).expand_as(pred).float()
     # loss = F.l1_loss(pred * mask, target * mask, reduction='elementwise_mean')
@@ -271,7 +271,7 @@ class RegWeightedL1Loss(nn.Module):
   def __init__(self):
     super(RegWeightedL1Loss, self).__init__()
   
-  def forward(self, output, mask, ind, target):
+  def forward(self, output, target, mask, ind):
     pred = _transpose_and_gather_feat(output, ind)
     mask = mask.float()
     # loss = F.l1_loss(pred * mask, target * mask, reduction='elementwise_mean')
@@ -283,9 +283,12 @@ class L1Loss(nn.Module):
   def __init__(self):
     super(L1Loss, self).__init__()
   
-  def forward(self, output, mask, ind, target):
-    pred = _transpose_and_gather_feat(output, ind)
-    mask = mask.unsqueeze(2).expand_as(pred).float()
+  def forward(self, output, target, mask=None, ind=None):
+    if ind is not None :
+        pred = _transpose_and_gather_feat(output, ind)
+    else:
+        pred = output
+    mask = mask.unsqueeze(-1).expand_as(pred).float()
     loss = F.l1_loss(pred * mask, target * mask, reduction='elementwise_mean')
     return loss
 

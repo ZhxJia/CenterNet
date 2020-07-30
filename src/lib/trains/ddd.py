@@ -39,21 +39,21 @@ class DddLoss(torch.nn.Module):
       
       hm_loss += self.crit(output['hm'], batch['hm']) / opt.num_stacks
       if opt.dep_weight > 0:
-        dep_loss += self.crit_reg(output['dep'], batch['reg_mask'],
-                                  batch['ind'], batch['dep']) / opt.num_stacks
+        dep_loss += self.crit_reg(output['dep'], batch['dep'],
+                                  batch['reg_mask'], batch['ind']) / opt.num_stacks
       if opt.dim_weight > 0:
-        dim_loss += self.crit_reg(output['dim'], batch['reg_mask'],
-                                  batch['ind'], batch['dim']) / opt.num_stacks
+        dim_loss += self.crit_reg(output['dim'], batch['dim'],
+                                  batch['reg_mask'], batch['ind']) / opt.num_stacks
       if opt.rot_weight > 0:
         rot_loss += self.crit_rot(output['rot'], batch['rot_mask'],
                                   batch['ind'], batch['rotbin'],
                                   batch['rotres']) / opt.num_stacks
       if opt.reg_bbox and opt.wh_weight > 0:
-        wh_loss += self.crit_reg(output['wh'], batch['rot_mask'],
-                                 batch['ind'], batch['wh']) / opt.num_stacks
+        wh_loss += self.crit_reg(output['wh'], batch['wh'], batch['rot_mask'],
+                                 batch['ind']) / opt.num_stacks
       if opt.reg_offset and opt.off_weight > 0:
-        off_loss += self.crit_reg(output['reg'], batch['rot_mask'],
-                                  batch['ind'], batch['reg']) / opt.num_stacks
+        off_loss += self.crit_reg(output['reg'], batch['reg'], batch['rot_mask'],
+                                  batch['ind']) / opt.num_stacks
     loss = opt.hm_weight * hm_loss + opt.dep_weight * dep_loss + \
            opt.dim_weight * dim_loss + opt.rot_weight * rot_loss + \
            opt.wh_weight * wh_loss + opt.off_weight * off_loss
