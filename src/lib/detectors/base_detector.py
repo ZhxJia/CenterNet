@@ -67,7 +67,7 @@ class BaseDetector(object):
             'out_width': inp_width // self.opt.down_ratio}
     return images, meta
 
-  def process(self, images, return_time=False):
+  def process(self, images, return_time=False, meta=None):
     raise NotImplementedError
   def get_boxes(self, images, return_time=False):
     raise NotImplementedError

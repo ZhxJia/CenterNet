@@ -19,6 +19,7 @@ class SMOKECoder():
         '''
         Transform depth offset to depth
         '''
+        self.depth_ref = self.depth_ref.to(depths_offset)
         depth = depths_offset * self.depth_ref[1] + self.depth_ref[0]
 
         return depth
@@ -60,7 +61,7 @@ class SMOKECoder():
         '''
         cls_flat = cls_id.flatten().long()
         ref_dim = self.dim_ref[cls_flat, :].reshape(dims_offset.shape[0], dims_offset.shape[1], -1)
-        dimensions = torch.exp(dims_offset) * ref_dim
+        dimensions = torch.exp(dims_offset) * ref_dim.to(dims_offset.device)
 
         return dimensions
 

@@ -29,17 +29,17 @@ def conv3x3(in_planes, out_planes, stride=1):
 
 
 class BasicBlock(nn.Module):
-    def __init__(self, inplanes, planes, stride=1, dilation=1):
+    def __init__(self, inplanes, planes, stride=1, dilation=1, norm_func='GN'):
         super(BasicBlock, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=3,
                                stride=stride, padding=dilation,
                                bias=False, dilation=dilation)
-        self.bn1 = nn.BatchNorm2d(planes, momentum=BN_MOMENTUM)
+        self.bn1 = _get_norm_func(planes,norm_func=norm_func)
         self.relu = nn.ReLU(inplace=True)
         self.conv2 = nn.Conv2d(planes, planes, kernel_size=3,
                                stride=1, padding=dilation,
                                bias=False, dilation=dilation)
-        self.bn2 = nn.BatchNorm2d(planes, momentum=BN_MOMENTUM)
+        self.bn2 = _get_norm_func(planes, norm_func=norm_func)
         self.stride = stride
 
     def forward(self, x, residual=None):
@@ -62,20 +62,20 @@ class BasicBlock(nn.Module):
 class Bottleneck(nn.Module):
     expansion = 2
 
-    def __init__(self, inplanes, planes, stride=1, dilation=1):
+    def __init__(self, inplanes, planes, stride=1, dilation=1, norm_func='GN'):
         super(Bottleneck, self).__init__()
         expansion = Bottleneck.expansion
         bottle_planes = planes // expansion
         self.conv1 = nn.Conv2d(inplanes, bottle_planes,
                                kernel_size=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(bottle_planes, momentum=BN_MOMENTUM)
+        self.bn1 = _get_norm_func(bottle_planes, norm_func=norm_func)
         self.conv2 = nn.Conv2d(bottle_planes, bottle_planes, kernel_size=3,
                                stride=stride, padding=dilation,
                                bias=False, dilation=dilation)
-        self.bn2 = nn.BatchNorm2d(bottle_planes, momentum=BN_MOMENTUM)
+        self.bn2 = _get_norm_func(bottle_planes, norm_func=norm_func)
         self.conv3 = nn.Conv2d(bottle_planes, planes,
                                kernel_size=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(planes, momentum=BN_MOMENTUM)
+        self.bn3 = _get_norm_func(planes, norm_func=norm_func)
         self.relu = nn.ReLU(inplace=True)
         self.stride = stride
 
@@ -104,7 +104,7 @@ class BottleneckX(nn.Module):
     expansion = 2
     cardinality = 32
 
-    def __init__(self, inplanes, planes, stride=1, dilation=1):
+    def __init__(self, inplanes, planes, stride=1, dilation=1, norm_func='GN'):
         super(BottleneckX, self).__init__()
         cardinality = BottleneckX.cardinality
         # dim = int(math.floor(planes * (BottleneckV5.expansion / 64.0)))
@@ -112,14 +112,14 @@ class BottleneckX(nn.Module):
         bottle_planes = planes * cardinality // 32
         self.conv1 = nn.Conv2d(inplanes, bottle_planes,
                                kernel_size=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(bottle_planes, momentum=BN_MOMENTUM)
+        self.bn1 = _get_norm_func(bottle_planes, norm_func=norm_func)
         self.conv2 = nn.Conv2d(bottle_planes, bottle_planes, kernel_size=3,
                                stride=stride, padding=dilation, bias=False,
                                dilation=dilation, groups=cardinality)
-        self.bn2 = nn.BatchNorm2d(bottle_planes, momentum=BN_MOMENTUM)
+        self.bn2 = _get_norm_func(bottle_planes, norm_func=norm_func)
         self.conv3 = nn.Conv2d(bottle_planes, planes,
                                kernel_size=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(planes, momentum=BN_MOMENTUM)
+        self.bn3 = _get_norm_func(planes, norm_func=norm_func)
         self.relu = nn.ReLU(inplace=True)
         self.stride = stride
 
@@ -145,12 +145,12 @@ class BottleneckX(nn.Module):
 
 
 class Root(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size, residual):
+    def __init__(self, in_channels, out_channels, kernel_size, residual, norm_func='GN'):
         super(Root, self).__init__()
         self.conv = nn.Conv2d(
             in_channels, out_channels, 1,
             stride=1, bias=False, padding=(kernel_size - 1) // 2)
-        self.bn = nn.BatchNorm2d(out_channels, momentum=BN_MOMENTUM)
+        self.bn = _get_norm_func(out_channels, norm_func=norm_func)
         self.relu = nn.ReLU(inplace=True)
         self.residual = residual
 
@@ -168,7 +168,7 @@ class Root(nn.Module):
 class Tree(nn.Module):
     def __init__(self, levels, block, in_channels, out_channels, stride=1,
                  level_root=False, root_dim=0, root_kernel_size=1,
-                 dilation=1, root_residual=False):
+                 dilation=1, root_residual=False, norm_func='GN'):
         super(Tree, self).__init__()
         if root_dim == 0:
             root_dim = 2 * out_channels
@@ -202,7 +202,7 @@ class Tree(nn.Module):
             self.project = nn.Sequential(
                 nn.Conv2d(in_channels, out_channels,
                           kernel_size=1, stride=1, bias=False),
-                nn.BatchNorm2d(out_channels, momentum=BN_MOMENTUM)
+                _get_norm_func(out_channels, norm_func=norm_func)
             )
 
     def forward(self, x, residual=None, children=None):
@@ -223,14 +223,14 @@ class Tree(nn.Module):
 
 class DLA(nn.Module):
     def __init__(self, levels, channels, num_classes=1000,
-                 block=BasicBlock, residual_root=False, linear_root=False):
+                 block=BasicBlock, residual_root=False, linear_root=False, norm_func='GN'):
         super(DLA, self).__init__()
         self.channels = channels
         self.num_classes = num_classes
         self.base_layer = nn.Sequential(
             nn.Conv2d(3, channels[0], kernel_size=7, stride=1,
                       padding=3, bias=False),
-            nn.BatchNorm2d(channels[0], momentum=BN_MOMENTUM),
+            _get_norm_func(channels[0], norm_func=norm_func),
             nn.ReLU(inplace=True))
         self.level0 = self._make_conv_level(
             channels[0], channels[0], levels[0])
@@ -254,14 +254,14 @@ class DLA(nn.Module):
         #         m.weight.data.fill_(1)
         #         m.bias.data.zero_()
 
-    def _make_level(self, block, inplanes, planes, blocks, stride=1):
+    def _make_level(self, block, inplanes, planes, blocks, stride=1, norm_func='GN'):
         downsample = None
         if stride != 1 or inplanes != planes:
             downsample = nn.Sequential(
                 nn.MaxPool2d(stride, stride=stride),
                 nn.Conv2d(inplanes, planes,
                           kernel_size=1, stride=1, bias=False),
-                nn.BatchNorm2d(planes, momentum=BN_MOMENTUM),
+                _get_norm_func(planes, norm_func=norm_func),
             )
 
         layers = []
@@ -271,14 +271,14 @@ class DLA(nn.Module):
 
         return nn.Sequential(*layers)
 
-    def _make_conv_level(self, inplanes, planes, convs, stride=1, dilation=1):
+    def _make_conv_level(self, inplanes, planes, convs, stride=1, dilation=1, norm_func='GN'):
         modules = []
         for i in range(convs):
             modules.extend([
                 nn.Conv2d(inplanes, planes, kernel_size=3,
                           stride=stride if i == 0 else 1,
                           padding=dilation, bias=False, dilation=dilation),
-                nn.BatchNorm2d(planes, momentum=BN_MOMENTUM),
+                _get_norm_func(planes, norm_func=norm_func),
                 nn.ReLU(inplace=True)])
             inplanes = planes
         return nn.Sequential(*modules)
@@ -343,10 +343,10 @@ def fill_up_weights(up):
 
 
 class DeformConv(nn.Module):
-    def __init__(self, chi, cho):
+    def __init__(self, chi, cho, norm_func='GN'):
         super(DeformConv, self).__init__()
         self.actf = nn.Sequential(
-            nn.BatchNorm2d(cho, momentum=BN_MOMENTUM),
+            _get_norm_func(cho, norm_func=norm_func),
             nn.ReLU(inplace=True)
         )
         self.conv = DCN(chi, cho, kernel_size=(3,3), stride=1, padding=1, dilation=1, deformable_groups=1)
@@ -480,7 +480,18 @@ class DLASeg(nn.Module):
         for head in self.heads:
             z[head] = self.__getattr__(head)(y[-1])
         return [z]
-    
+
+def _get_norm_func(num_features, norm_func):
+    num_groups = 32
+    if norm_func == 'BN':
+        return nn.BatchNorm2d(num_features, momentum=BN_MOMENTUM)
+    elif norm_func == 'GN':
+        if num_features % 32 == 0:
+            return nn.GroupNorm(num_groups, num_features)
+        else:
+            return nn.GroupNorm(num_groups // 2, num_features)
+    else:
+        raise ValueError
 
 def get_pose_net(num_layers, heads, head_conv=256, down_ratio=4):
   model = DLASeg('dla{}'.format(num_layers), heads,

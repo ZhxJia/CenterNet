@@ -10,8 +10,8 @@ class opts(object):
   def __init__(self):
     self.parser = argparse.ArgumentParser()
     # basic experiment setting
-    self.parser.add_argument('task', default='ctdet',
-                             help='ctdet | ddd')
+    self.parser.add_argument('task', default='smk3d',
+                             help='ctdet | ddd | smk3d')
     self.parser.add_argument('--dataset', default='kitti',
                              help='coco | kitti | coco_hp | pascal')
     self.parser.add_argument('--exp_id', default='default')
@@ -166,11 +166,11 @@ class opts(object):
     self.parser.add_argument('--hm_radius', type=float, default=0.4,
                               help='heatmap radius')
     # ddd
-    self.parser.add_argument('--loc_weight', type=float, default=1,
+    self.parser.add_argument('--loc_weight', type=float, default=8,
                              help='loss weight for location.')
-    self.parser.add_argument('--dim_weight', type=float, default=1,
+    self.parser.add_argument('--dim_weight', type=float, default=12,
                              help='loss weight for 3d bounding box size.')
-    self.parser.add_argument('--ori_weight', type=float, default=1,
+    self.parser.add_argument('--ori_weight', type=float, default=12,
                              help='loss weight for orientation.')
     self.parser.add_argument('--peak_thresh', type=float, default=0.2)
 
@@ -284,6 +284,11 @@ class opts(object):
       #     {'wh': 4})
       if opt.reg_offset:
         opt.heads.update({'offset': 2})
+    elif opt.task == 'smk3d':
+      # assert opt.dataset in ['gta', 'kitti', 'viper']
+      opt.heads = {'hm': opt.num_classes, 'dep': 1, 'rot': 2, 'dim': 3}
+      if opt.reg_offset:
+        opt.heads.update({'offset': 2})
     elif opt.task == 'ctdet':
       # assert opt.dataset in ['pascal', 'coco']
       opt.heads = {'hm': opt.num_classes,
@@ -304,6 +309,9 @@ class opts(object):
       #          'mean': [0.485, 0.456, 0.406], 'std': [0.229, 0.224, 0.225],
       #          'dataset': 'pascal'},
       'ddd': {'default_resolution': [384, 1280], 'num_classes': 3,
+                'mean': [0.485, 0.456, 0.406], 'std': [0.229, 0.224, 0.225],
+                'dataset': 'kitti'},
+      'smk3d': {'default_resolution': [384, 1280], 'num_classes': 3,
                 'mean': [0.485, 0.456, 0.406], 'std': [0.229, 0.224, 0.225],
                 'dataset': 'kitti'},
     }

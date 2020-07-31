@@ -24,11 +24,11 @@ _sample_factory = {
     'ctdet': CTDetDataset,
     'ddd': DddDataset,
     'multi_pose': MultiPoseDataset,
-    'smk': SmkDataset
+    'smk3d': SmkDataset
 }
 
 
-# 同时继承数据集和数据集获取类
+
 def get_dataset(dataset, task):
     class Dataset(dataset_factory[dataset], _sample_factory[task]):
         pass

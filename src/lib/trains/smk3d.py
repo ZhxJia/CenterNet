@@ -6,10 +6,10 @@ import torch
 import numpy as np
 
 from models.losses import FocalLoss, L1Loss, BinRotLoss
-from models.decode import ddd_decode
+from models.decode import smk3d_decode
 from models.utils import _sigmoid
 from utils.debugger import Debugger
-from utils.post_process import ddd_post_process
+from utils.post_process import smk3d_post_process
 from utils.oracle_utils import gen_oracle_map
 from .base_trainer import BaseTrainer
 from models.coder import SMOKECoder
@@ -23,7 +23,7 @@ class Smk3dLoss(torch.nn.Module):
         self.crit_reg = L1Loss() if opt.reg_loss == 'l1' else \
             L1Loss() if opt.reg_loss == 'disl1' else None
         self.opt = opt
-        self.smoke_coder = SMOKECoder(opt.reference_depth, opt.reference_size, device='cpu')  # todo debug: device?
+        self.smoke_coder = SMOKECoder(opt.reference_depth, opt.reference_size, device='cuda')  # todo debug: device?
 
     def forward(self, outputs, batch):
         opt = self.opt
@@ -104,10 +104,10 @@ class Smk3dTrainer(BaseTrainer):
 
     def debug(self, batch, output, iter_id):
         opt = self.opt
-        wh = output['wh'] if opt.reg_bbox else None
-        reg = output['reg'] if opt.reg_offset else None
-        dets = ddd_decode(output['hm'], output['rot'], output['dep'],
-                          output['dim'], wh=wh, reg=reg, K=opt.K)
+        # wh = output['wh'] if opt.reg_bbox else None
+        # reg = output['offset'] if opt.reg_offset else None
+        dets = smk3d_decode(output['hm'], output['rot'], output['dep'],
+                          output['dim'], output['offset'], K=opt.K)
 
         # x, y, score, r1-r8, depth, dim1-dim3, cls
         dets = dets.detach().cpu().numpy().reshape(1, -1, dets.shape[2])
@@ -115,10 +115,10 @@ class Smk3dTrainer(BaseTrainer):
         # x, y, score, rot, depth, dim1, dim2, dim3
         # if opt.dataset == 'gta':
         #   dets[:, 12:15] /= 3
-        dets_pred = ddd_post_process(
+        dets_pred = smk3d_post_process(
             dets.copy(), batch['meta']['c'].detach().numpy(),
             batch['meta']['s'].detach().numpy(), calib, opt)
-        dets_gt = ddd_post_process(
+        dets_gt = smk3d_post_process(
             batch['meta']['gt_det'].detach().numpy().copy(),
             batch['meta']['c'].detach().numpy(),
             batch['meta']['s'].detach().numpy(), calib, opt)
@@ -165,16 +165,16 @@ class Smk3dTrainer(BaseTrainer):
 
     def save_result(self, output, batch, results):
         opt = self.opt
-        wh = output['wh'] if opt.reg_bbox else None
-        reg = output['reg'] if opt.reg_offset else None
-        dets = ddd_decode(output['hm'], output['rot'], output['dep'],
-                          output['dim'], wh=wh, reg=reg, K=opt.K)
+        # wh = output['wh'] if opt.reg_bbox else None
+        # reg = output['reg'] if opt.reg_offset else None
+        dets = smk3d_decode(output['hm'], output['rot'], output['dep'],
+                          output['dim'], hm_offset=output['offset'], K=opt.K)
 
         # x, y, score, r1-r8, depth, dim1-dim3, cls
         dets = dets.detach().cpu().numpy().reshape(1, -1, dets.shape[2])
         calib = batch['meta']['calib'].detach().numpy()
         # x, y, score, rot, depth, dim1, dim2, dim3
-        dets_pred = ddd_post_process(
+        dets_pred = smk3d_post_process(
             dets.copy(), batch['meta']['c'].detach().numpy(),
             batch['meta']['s'].detach().numpy(), calib, opt)
         img_id = batch['meta']['img_id'].detach().numpy()[0]

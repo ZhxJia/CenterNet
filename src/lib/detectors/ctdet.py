@@ -26,7 +26,7 @@ class CtdetDetector(BaseDetector):
     def __init__(self, opt):
         super(CtdetDetector, self).__init__(opt)
 
-    def process(self, images, return_time=False):
+    def process(self, images, return_time=False, meta=None):
         with torch.no_grad():
             output = self.model(images)[-1]
             hm = output['hm'].sigmoid_()
